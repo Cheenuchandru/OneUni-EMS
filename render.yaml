@@ -16,5 +16,6 @@ services:
       - key: ALLOWED_ORIGINS
         value: https://oneuni.vercel.app
       - key: DATABASE_URL
-        sync: false
+        value: sqlite:///./ems_dev.db
+
 
