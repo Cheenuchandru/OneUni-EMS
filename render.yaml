@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: oneuni-api
+    runtime: python
+    rootDir: apps/api
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SEED_DEMO
+        value: "true"
+      - key: ALLOWED_ORIGINS
+        value: https://oneuni.vercel.app
+      - key: DATABASE_URL
+        sync: false
