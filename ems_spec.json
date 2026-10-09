@@ -1,0 +1,385 @@
+{
+  "project": {
+    "name": "EMS - Employee Management System",
+    "version": "2.0-final",
+    "owner": "Oneuni Agri Platform Pvt Ltd",
+    "prepared": "2026-07-21",
+    "timezone": "Asia/Kolkata",
+    "build_days": 14,
+    "ports": {
+      "web": 3200,
+      "api": 8200,
+      "reserved_reason": "avoid mattress 3000/8000 and agri 3100/8100 on shared KVM4"
+    }
+  },
+  "stack": {
+    "frontend": "React / Next.js 15 (App Router) + Tailwind",
+    "backend": "FastAPI (Python 3.13), Pydantic v2, SQLAlchemy ORM, Alembic",
+    "database": "PostgreSQL 16 (UUIDv7 PKs, cursor pagination only)",
+    "cache": "Redis 7 (rate limiting, permission cache, notification polling)",
+    "mail": {
+      "provider": "Gmail",
+      "host": "smtp.gmail.com",
+      "port": 465,
+      "security": "SSL",
+      "auth": "App Password",
+      "dev": "mailhog"
+    },
+    "packaging": "Docker Compose (web, api, db, redis, mailworker, backup; mailhog dev-only)"
+  },
+  "roles": {
+    "employee": {
+      "permissions": [
+        "attendance.punch",
+        "attendance.view_own",
+        "eod.submit",
+        "eod.view_own",
+        "projects.update_status_assigned",
+        "projects.view_assigned",
+        "calendar.view",
+        "leave.request",
+        "comms.comment",
+        "dashboard.self"
+      ]
+    },
+    "md": {
+      "inherits": "employee",
+      "permissions": [
+        "attendance.view_all",
+        "attendance.view_device_all",
+        "eod.view_all",
+        "projects.manage",
+        "projects.edit_any_status",
+        "users.create_non_admin",
+        "calendar.manage",
+        "leave.approve",
+        "comms.announce",
+        "export.attendance",
+        "mail.receive_punch_default"
+      ]
+    },
+    "admin": {
+      "permissions": [
+        "*"
+      ],
+      "extras": [
+        "roles.manage",
+        "mail.route",
+        "audit.view",
+        "attendance.edit_with_reason",
+        "eod.templates",
+        "settings.manage",
+        "users.manage_all"
+      ],
+      "note": "admin actions are themselves audit-logged; admin can create custom roles from the permission registry without redeploy"
+    }
+  },
+  "business_rules": {
+    "R1_punch_immutability": "Employees INSERT-only on punches. Enforced 3x: no edit endpoint, DB trigger blocking UPDATE/DELETE unless session app.role=admin, ORM read-only post-insert. Admin edits require reason and are audited with before/after.",
+    "R2_dual_timestamps": "claimed_at = employee-stated time; server_at = DB clock at insert. Both stored, both shown to MD/Admin, gap highlighted when > 10 minutes.",
+    "R2b_device_capture": "Server derives ip (X-Forwarded-For aware), device_type mobile|tablet|desktop, os_name, os_version, browser from user-agent via ua-parser. Client-sent device fields ignored. Known limit: laptop vs desktop tower indistinguishable; both = desktop.",
+    "R3_auto_day_marking": "Nightly 00:30 IST for yesterday: approved leave->leave; company holiday->holiday; no 'in' punch on working day->absent; else present/half/wfh from work_mode. Idempotent; admin backfill endpoint.",
+    "R4_mail_on_punch": "Every punch inserts mail.outbox row in same DB transaction; worker resolves recipients from admin routing rules at send time; default recipient role:md for punch.in and punch.out. SMTP outage never blocks or loses a punch.",
+    "R5_eod_lock": "EOD editable by author until 23:59 IST of its date, then locked. Admin may still edit (audited).",
+    "R6_rbac_from_db": "Permissions load from auth.role_permissions (Redis-cached 60s, invalidated on edit) so admin-created roles work without deploys. UI gates by permission key, never role name.",
+    "R7_everything_audited": "All writes by all roles including admin -> audit.audit_log (INSERT-only at DB level) with actor, action, entity, before/after JSON.",
+    "R8_plug_and_play": "docker compose up -d from fresh clone yields working app: seeded admin (one-time password printed once), default roles, default EOD template, current-year calendar, demo data when SEED_DEMO=true."
+  },
+  "features": {
+    "requested": [
+      "login/logout punches, immutable, dual timestamps",
+      "calendar: working/weekend/holiday/leave/absent with auto-marking on missing login",
+      "EOD reports from admin-managed templates (minimal typing), midnight lock",
+      "project management: projects, tasks, assignment, status updates; MD/Admin edit any",
+      "per-role dashboards (employee/MD/admin), each showing own activity log",
+      "email on every login/logout; admin decides routing (who receives which mail)",
+      "MD: add employee, view all logs/activity, claimed-vs-server times, device/OS/IP per punch, read EODs, calendar access",
+      "admin: full access, role builder, assign roles, mail routing, full audit incl. admin's own actions",
+      "communication: announcements + task/project comments"
+    ],
+    "added": [
+      "leave request workflow with balances (default 18/yr) syncing to calendar",
+      "half-day and WFH markers at punch time",
+      "late-login flag vs admin-set office start (default 09:30) + monthly late counts",
+      "monthly attendance CSV export incl. both timestamps, gap, device, os, ip",
+      "in-app notification bell (leave decided, task assigned, announcement, comment)",
+      "missed-EOD reminder mail at 20:30 IST (admin-routable)",
+      "nightly pg_dump backup container, 14-day retention, tested restore",
+      "new-device / new-IP flag on MD employee drill-down"
+    ]
+  },
+  "data_model": {
+    "auth.users": [
+      "id uuidv7",
+      "email",
+      "password_hash sha256+bcrypt",
+      "full_name",
+      "role_id",
+      "is_active"
+    ],
+    "auth.roles": [
+      "id",
+      "name",
+      "is_system"
+    ],
+    "auth.role_permissions": [
+      "role_id",
+      "permission_key"
+    ],
+    "attendance.punches": [
+      "id",
+      "user_id",
+      "punch_type in|out",
+      "claimed_at",
+      "server_at db-default",
+      "ip",
+      "user_agent",
+      "device_type mobile|tablet|desktop",
+      "os_name",
+      "os_version",
+      "browser",
+      "work_mode office|wfh|half",
+      "day generated IST",
+      "UNIQUE(user_id, day, punch_type)"
+    ],
+    "calendar.days": [
+      "date pk",
+      "day_type working|weekend|holiday",
+      "label"
+    ],
+    "calendar.day_status": [
+      "user_id",
+      "date",
+      "status present|absent|leave|holiday|half|wfh",
+      "source auto|manual",
+      "marked_at"
+    ],
+    "leave.requests": [
+      "id",
+      "user_id",
+      "from_date",
+      "to_date",
+      "half_day",
+      "reason",
+      "status pending|approved|rejected|cancelled",
+      "decided_by",
+      "decided_at",
+      "decision_note"
+    ],
+    "leave.balances": [
+      "user_id",
+      "year",
+      "allotted",
+      "used"
+    ],
+    "eod.templates": [
+      "id",
+      "name",
+      "body_md",
+      "is_default",
+      "active"
+    ],
+    "eod.reports": [
+      "id",
+      "user_id",
+      "date",
+      "template_id",
+      "body_md",
+      "submitted_at",
+      "locked",
+      "UNIQUE(user_id,date)"
+    ],
+    "projects.projects": [
+      "id",
+      "name",
+      "code unique",
+      "description",
+      "status planned|active|on_hold|done",
+      "created_by"
+    ],
+    "projects.tasks": [
+      "id",
+      "project_id",
+      "title",
+      "description",
+      "assignee_id",
+      "status todo|in_progress|review|done",
+      "priority low|med|high",
+      "due_date"
+    ],
+    "projects.status_updates": [
+      "id",
+      "project_id",
+      "task_id?",
+      "user_id",
+      "note",
+      "old_status",
+      "new_status",
+      "created_at"
+    ],
+    "comms.announcements": [
+      "id",
+      "author_id",
+      "title",
+      "body_md",
+      "pinned",
+      "created_at"
+    ],
+    "comms.comments": [
+      "id",
+      "entity_type project|task",
+      "entity_id",
+      "author_id",
+      "body",
+      "created_at"
+    ],
+    "comms.notifications": [
+      "id",
+      "user_id",
+      "type",
+      "payload",
+      "read_at"
+    ],
+    "mail.routing_rules": [
+      "id",
+      "event_type",
+      "recipient_type role|user|email",
+      "recipient_value",
+      "enabled"
+    ],
+    "mail.outbox": [
+      "id",
+      "event_type",
+      "payload jsonb",
+      "to_emails[]",
+      "status pending|sent|failed",
+      "attempts",
+      "last_error",
+      "created_at",
+      "sent_at"
+    ],
+    "audit.audit_log": [
+      "id",
+      "actor_id",
+      "actor_role",
+      "action",
+      "entity",
+      "entity_id",
+      "before jsonb",
+      "after jsonb",
+      "at",
+      "INSERT-only trigger"
+    ],
+    "settings": [
+      "key",
+      "value: office_start_time=09:30, eod_lock=23:59, tz=Asia/Kolkata"
+    ]
+  },
+  "mail_events": {
+    "punch.in": {
+      "default_to": "role:md",
+      "body_includes": [
+        "employee",
+        "claimed_at",
+        "server_at",
+        "gap",
+        "work_mode",
+        "device_type",
+        "os",
+        "browser",
+        "ip"
+      ]
+    },
+    "punch.out": {
+      "default_to": "role:md",
+      "body_includes": "same as punch.in"
+    },
+    "leave.requested": {
+      "default_to": "role:md"
+    },
+    "leave.decided": {
+      "default_to": "user:requester"
+    },
+    "eod.missing": {
+      "default_to": "role:md",
+      "schedule": "20:30 IST"
+    }
+  },
+  "schedule": [
+    {
+      "day": 1,
+      "title": "Scaffold & Infrastructure",
+      "verify": "compose up -> web :3000, /health 200, mailhog :8025, CI green"
+    },
+    {
+      "day": 2,
+      "title": "Auth Foundation",
+      "verify": "seeded admin login, /auth/me, 6th bad login 429, httpOnly cookies"
+    },
+    {
+      "day": 3,
+      "title": "RBAC Engine + Audit Middleware",
+      "verify": "custom role works live; 403s correct; writes in audit_log"
+    },
+    {
+      "day": 4,
+      "title": "Attendance Engine (Immutable Punches + Device Capture)",
+      "verify": "dual times + device/os/browser/ip stored; no edit path for employee"
+    },
+    {
+      "day": 5,
+      "title": "Calendar Engine + Auto Day-Marking",
+      "verify": "no-punch working day -> Absent; holiday overrides on re-run"
+    },
+    {
+      "day": 6,
+      "title": "Leave Management",
+      "verify": "apply -> approve -> calendar Leave + balance used"
+    },
+    {
+      "day": 7,
+      "title": "EOD with Templates + Midnight Lock",
+      "verify": "template prefill submit <1 min; next-day edit 403"
+    },
+    {
+      "day": 8,
+      "title": "Project Management",
+      "verify": "assign task; assignee-only status update; timeline rows"
+    },
+    {
+      "day": 9,
+      "title": "Mail Engine (Zoho) + Admin Routing",
+      "verify": "punch -> MD mail with dual times + device line; reroute works"
+    },
+    {
+      "day": 10,
+      "title": "Employee Dashboard",
+      "verify": "punch, EOD, task, leave all from /dashboard; own activity log"
+    },
+    {
+      "day": 11,
+      "title": "MD Dashboard",
+      "verify": "feed shows gap + device/os/ip; drill-down flags new device/IP"
+    },
+    {
+      "day": 12,
+      "title": "Admin Dashboard",
+      "verify": "role built in UI works live; punch edit diff in audit"
+    },
+    {
+      "day": 13,
+      "title": "Communication, Bell & CSV Export",
+      "verify": "announcement + bell; CSV with device/os/ip columns"
+    },
+    {
+      "day": 14,
+      "title": "Hardening, Seed, Docs & Ship",
+      "verify": "clean clone -> compose up -> full demo <5 min; make smoke green"
+    }
+  ],
+  "known_limits": [
+    "laptop vs desktop tower not distinguishable from browser user-agent (both = desktop-class)",
+    "user-agent is spoofable by technical users; treat device as signal, not proof",
+    "gmail daily send limit of 500 messages; monitor outbox failed count; digest toggle is a future option"
+  ]
+}

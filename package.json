@@ -1,0 +1,21 @@
+{
+  "name": "ems-monorepo",
+  "version": "2.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n \"API,WEB\" -c \"blue,green\" \"python apps/api/main.py\" \"npm run dev --prefix apps/web\"",
+    "dev:web": "npm run dev --prefix apps/web",
+    "dev:api": "python apps/api/main.py",
+    "build": "npm run build --prefix apps/web",
+    "build:web": "npm run build --prefix apps/web",
+    "start:web": "npm run start --prefix apps/web",
+    "lint:web": "npm run lint --prefix apps/web"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "devDependencies": {
+    "concurrently": "^10.0.5",
+    "cross-env": "^10.1.0"
+  }
+}

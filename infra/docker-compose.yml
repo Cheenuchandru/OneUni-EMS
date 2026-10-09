@@ -1,0 +1,82 @@
+version: '3.8'
+
+services:
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    container_name: ems_web
+    ports:
+      - "${WEB_PORT:-3200}:3200"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8200
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    container_name: ems_api
+    ports:
+      - "${API_PORT:-8200}:8200"
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-dev}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    container_name: ems_db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ems_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ems_password_secure_123}
+      POSTGRES_DB: ${POSTGRES_DB:-ems_db}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ems_user} -d ${POSTGRES_DB:-ems_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ems_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: ems_mailhog
+    ports:
+      - "1025:1025" # SMTP port
+      - "8025:8025" # Web UI port
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
