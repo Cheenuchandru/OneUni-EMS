@@ -2,6 +2,7 @@ services:
   - type: web
     name: oneuni-api
     runtime: python
+    plan: free
     rootDir: apps/api
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
@@ -16,3 +17,4 @@ services:
         value: https://oneuni.vercel.app
       - key: DATABASE_URL
         sync: false
+
