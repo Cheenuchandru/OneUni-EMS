@@ -4,8 +4,9 @@ from sqlalchemy.orm import sessionmaker, declarative_base
 from config import settings
 
 database_url = settings.DATABASE_URL
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql://", 1)
 
-# Handle SQLite fallback for local dev when PostgreSQL is not running
 if "postgresql" in database_url and os.environ.get("USE_SQLITE_FALLBACK", "true").lower() == "true":
     # Use SQLite for standalone local execution if postgres is unreachable
     try:
