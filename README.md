@@ -7,7 +7,7 @@
 [![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-Proprietary-emerald?style=for-the-badge)]()
 
-> **Oneuni Agri Platform Pvt Ltd** — DPIIT-recognised company behind [Agri.in](https://agri.in), [Milk.in](https://milk.in), and [TheOrganic.in](https://theorganic.in).
+> **Oneuni Agri Platform Pvt Ltd** [oneuni.in](https://oneuni.in) — DPIIT-recognised company behind [Agri.in](https://agri.in), [Milk.in](https://milk.in), and [TheOrganic.in](https://theorganic.in).
 
 ---
 
